@@ -25,42 +25,30 @@ jobs:
           p = Path('index.html')
           s = p.read_text(encoding='utf-8')
 
-          old_form = '''  <form class="form" id="contactForm">
-           <input required name="name" placeholder="Name" autocomplete="name">
-           <input required type="email" name="email" placeholder="Email" autocomplete="email">
-           <select name="projectType"><option value="">Project Type</option><option>Residential HVAC</option><option>Commercial HVAC</option><option>Mechanical Design</option><option>Design + Build</option><option>Heat Pump / Electrification</option><option>Other</option></select>
-           <textarea required name="message" placeholder="Message"></textarea>
-           <div class="form-status" id="formStatus"></div>
-           <button class="send" type="submit">Send Message &nbsp;&nbsp;›</button>
-          </form>'''
+          # Add a hidden spam-trap field, accessible status message, and button id.
+          s = s.replace(
+              '<textarea required name="message" placeholder="Message"></textarea>\n   <div class="form-status" id="formStatus"></div>\n   <button class="send" type="submit">Send Message &nbsp;&nbsp;›</button>',
+              '<textarea required name="message" placeholder="Message"></textarea>\n   <input type="text" name="_honey" tabindex="-1" autocomplete="off" style="display:none" aria-hidden="true">\n   <div class="form-status" id="formStatus" role="status" aria-live="polite"></div>\n   <button class="send" id="sendButton" type="submit">Send Message &nbsp;&nbsp;›</button>',
+              1
+          )
 
-          new_form = '''  <form class="form" id="contactForm">
-           <input required name="name" placeholder="Name" autocomplete="name">
-           <input required type="email" name="email" placeholder="Email" autocomplete="email">
-           <select name="projectType"><option value="">Project Type</option><option>Residential HVAC</option><option>Commercial HVAC</option><option>Mechanical Design</option><option>Design + Build</option><option>Heat Pump / Electrification</option><option>Other</option></select>
-           <textarea required name="message" placeholder="Message"></textarea>
-           <input type="text" name="_honey" tabindex="-1" autocomplete="off" style="display:none" aria-hidden="true">
-           <div class="form-status" id="formStatus" role="status" aria-live="polite"></div>
-           <button class="send" id="sendButton" type="submit">Send Message &nbsp;&nbsp;›</button>
-          </form>'''
+          start_marker = "document.getElementById('contactForm').addEventListener('submit',function(e){"
+          start = s.find(start_marker)
+          if start < 0:
+              raise SystemExit('Old contact form handler was not found')
+          end_marker = '\n});\n</script>'
+          end = s.find(end_marker, start)
+          if end < 0:
+              raise SystemExit('End of old contact form handler was not found')
+          end += len('\n});')
 
-          old_js = '''document.getElementById('contactForm').addEventListener('submit',function(e){
-           e.preventDefault();
-           const fd=new FormData(this);
-           const subject='RDG Website Inquiry - '+(fd.get('projectType')||'General');
-           const body='Name: '+fd.get('name')+'\\nEmail: '+fd.get('email')+'\\nProject Type: '+(fd.get('projectType')||'Not specified')+'\\n\\nMessage:\\n'+fd.get('message');
-           document.getElementById('formStatus').textContent='Opening your email app to send the inquiry…';
-           window.location.href='mailto:pak@radiantsf.com?subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(body);
-          });'''
-
-          new_js = '''document.getElementById('contactForm').addEventListener('submit',async function(e){
+          new_js = """document.getElementById('contactForm').addEventListener('submit',async function(e){
            e.preventDefault();
            const form=this;
            const fd=new FormData(form);
            const status=document.getElementById('formStatus');
            const button=document.getElementById('sendButton');
 
-           // Simple spam trap. Human visitors never see this field.
            if(fd.get('_honey')){
             form.reset();
             status.textContent='Thank you. Your message has been sent.';
@@ -85,10 +73,7 @@ jobs:
            try{
             const response=await fetch('https://formsubmit.co/ajax/pak@radiantsf.com',{
              method:'POST',
-             headers:{
-              'Content-Type':'application/json',
-              'Accept':'application/json'
-             },
+             headers:{'Content-Type':'application/json','Accept':'application/json'},
              body:JSON.stringify(payload)
             });
             const data=await response.json().catch(()=>({}));
@@ -104,14 +89,14 @@ jobs:
             button.disabled=false;
             button.innerHTML='Send Message &nbsp;&nbsp;›';
            }
-          });'''
+          });"""
 
-          if old_form not in s:
-              raise SystemExit('Expected contact form block was not found')
-          if old_js not in s:
-              raise SystemExit('Expected mailto JavaScript block was not found')
+          s = s[:start] + new_js + s[end:]
+          if 'mailto:' in s:
+              raise SystemExit('mailto handler is still present')
+          if 'formsubmit.co/ajax/pak@radiantsf.com' not in s:
+              raise SystemExit('AJAX form endpoint was not added')
 
-          s = s.replace(old_form, new_form, 1).replace(old_js, new_js, 1)
           p.write_text(s, encoding='utf-8')
           PY
 
